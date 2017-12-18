@@ -1,30 +1,203 @@
 ---
 title: "IODS Final Assignment"
-author: "Anton Saressalo"
+author: "Anton Saressalo, anton.saressalo@helsinki.fi"
 date: "December 18, 2017"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Abstract
+In the study, data from boston neighbourhoods was studied with the aim to be able to find important factors regarding the house prices. Linear Regression and Principal Component Analysis methods were used to study the relations between the variables and especially how they are related to the median value house of a house in the region.
+
+It was found that houses with more rooms are more expensive. Also, houses at areas with less lower class people and more teachers in schools are attracting more value in the housing market. It was also found that "inner city vs suburbs”, “upper class vs lower class” and “densely populated vs scarcely populated” are the most important factors dividing different housing areas.
+
+# Introduction
+In this work, we are going to study the Boston housing data set that is found on the MASS library of R. The aim is to find the largest factors that affect the price of a house in Boston area.
+
+Linear Regression and Principal Component Analysis methods will be used to find the best statistical indicators and also those variables that are of less interes or can possibly be tied together to reduce the complexity of the information. As a hypothethis, one could assume that valuable homes are located close to financial centres, next to nature (river, low pollution), have good connections (near highways) and have a high quality of living (high tax rate, low crime rate) and so on.
+
+Two analysis methods are used: Linear Regression is used to distinguish which variables have the highest (either positive or negative) correlation with the house value of the area. Furthermore, Principal Component Analysis is used to group several variables under the same "principal components".
+
+# Boston data set
+As mentioned, the data used is the Boston data set from the MASS libary of R. The data includes information collected by the US Census Service in 1978. [^1]
+
+[^1]: https://stat.ethz.ch/R-manual/R-devel/library/MASS/html/Boston.html
+
+The set contains 506 observations, each in 14 categories, which are (variable names in parenthesis)
+
+* Per capita crime rate by town (crime_rate)
+* Proportion of residential land zoned for lots over 25,000 sq.ft. (large_zones)
+* proportion of non-retail business acres per town (industrialization)
+* Charles River dummy variable (= 1 if tract bounds river; 0 otherwise) (by_river)
+* Nitrogen oxides concentration (parts per 10 million) (NOx_ppm)
+* Average number of rooms per dwelling (avg_rooms)
+* Proportion of owner-occupied units built prior to 1940 (old_buildings)
+* Weighted mean of distances to five Boston employment centres (dist_to_centre)
+* Index of accessibility to radial highways (near_highways)
+* Full-value property-tax rate per $10,000 (property_tax_rate)
+* Pupil-teacher ratio by town (pupil_teacher_ratio)
+* 1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town (black_ratio)
+* Lower status of the population (percent) (lower_status_ratio)
+* Median value of owner-occupied homes in $1000s (home_median_value)
+
+Each observation contains data from one "housing area" or neighbourhood.
+
+An R script located at https://github.com/saressal/IODS-final/blob/master/wrangling.R was used to load the data from the aforementioned MASS libarary. In addition, the variable names were changed to more self-explanatory ones and the data was copied and normalized in another data frame. The normalization scaled the variables so that their mean is at zero and the distances of other values to the mean is in the units of standard deviations. The script saved the data sets in csv files for easier use without external libraries. Those files are located at 
+
+* https://github.com/saressal/IODS-final/blob/master/Boston.csv
+* https://github.com/saressal/IODS-final/blob/master/Boston_std.csv
+
+R can be used to load the data into data frames and to have see the overview. The normalized dataset is left for later inspection, since it is otherwise the same as the original one, but its values are scaled to match each other.
+```{r, message=FALSE, warning=FALSE}
+Boston = read.csv("Boston.csv",header=TRUE)
+Boston_std = read.csv("Boston_std.csv",header=TRUE)
+summary(Boston)
+```
+All data is numeric, which makes it easy to use them. Already from this overview we can see that there are great differences with the scales and distributions of the variables. 
+
+Next, let us plot the distributions of each variable
+```{r message=FALSE, warning=FALSE}
+library(purrr)
+library(tidyr)
+library(ggplot2)
+Boston %>%
+  keep(is.numeric) %>%                     # Keep only numeric columns
+  gather() %>%                             # Convert to key-value pairs
+  ggplot(aes(value)) +                     # Plot the values
+    facet_wrap(~ key, scales = "free") +   # In separate panels
+    geom_density()                         # as density
+```
+We can conclude the same observation: Some variables, such as avg_rooms or lower_status_ratio are widely distributed roughly following a Gaussian (or Poisson) distribution. While others, such as by_river, crime_rate and black_ratio are mostly non-existent, but those visible are heavily centered in very few neighbourhoods. The rest, for example propertyy_tax_rate or indistriaization are a combination of these two, i.e. in most areas there is some of them present, but there can be found a single area where they are significantly higher.
+
+Checking how each variable is related to each other with a correlation plot.
+```{r}
+library(corrplot)
+corrplot.mixed(cor(Boston),number.cex = .6,upper="square",tl.pos = "lt",tl.cex=0.7)
+```
+From the graph we see that most positively correlated variables are property_tax_rate & near_highways, other high valued pairs are for example NOx_ppm & industrialation, old_buildings & NOx_ppn. Many of the most highly negatively correlated values are related to dist_to_centre: NOx_ppm, old_buildings and industrialization.
+
+The immediate results are quite easily reasoned with commn sense. Old buildings are located in the centers and so is the traffic with their emissions. Boston is a highly industrialized and acar-positive city (on European standards), so the land area near the highways is taxed a lot. From this is quite condident to predict that at least some of the variables can be grouped with PCA.
+
+But the thing we are interested in, how the numerous variables affect on price of a house, is not so clear. The one strongly positively correlated variable is the average amount of rooms. And the most negatively correlated one the share of people form lower social classes. 
+
+# Analysis methods
+
+## Linear Regression
+Linear regression is one of the most used data analysis methods due to its simplicity and quantitativity. For example a vast majority of model testing in physics involves linearizing the model and observing if the data points fit the line.
+
+In the method, a matrix equation **y** = a_1 \* **x_1** + a_2 \* **x_2** + ... + a_n  \* **x_n** + b is minimized. In the equation, **x_i** are matrices for each of the explanatory variable. The square of the difference between the model (**y**) and measurements are calculated in each data point and their sum is minimized in order to get the optimal values.
+
+However, there are some assupmtions that need to be considered and validated when performing a linear regression fit for an arbitrary data set:
+* There actually is a linear regression in the data
+* The errors are normally distributed (with constant variance), not covariant and not correlated to the explanatory variables
+* Each data point has the same weight
+
+If these assumptions don't hold, different corrections can be made, such as weighing the data points to make the third assumption valid in the fit.
+
+## Principal Component Analysis
+Principal Component Analysis (PCA) is a statistical method which aims to reduce the amount of dimensions in the data set. In the method, the variables that are (most probably) correlated are grouped together into new variables called Principal Components. The amount of Principal Components is the same or smaller compared to the original data set, but the method sorts them so that, in a successful case, most of the information is stored in the first few components. This procedure called orthogonal transformation is defined so that the first principal comopnent catches the largest possible variance and each consecutive component catches less.
+
+By this way, it is possible to group multiple linked variables together in orthogonal components. With reduced dimensions also the data usually becomes more easily understandable. This is why PCA is good in cases where it is not intuitive which variables are connected.
+
+
+# Results
+## Linear Regression
+Based on the correlation analysis, we select the four variables  most correlated (by absolute value) with the home_median_value. They are:
+
+* lower_status_ratio
+* avg_rooms
+* pupil_teacher_ratio
+* industrialization
+
+Generating the linear regression model with function lm
+```{r}
+linear_fit = lm(home_median_value ~ lower_status_ratio + avg_rooms + pupil_teacher_ratio + industrialization,data=Boston)
+summary(linear_fit)
+```
+From the results we can see that the first tree explanatory variables have really small P values, but the fourth one, industrialization, does not fit this model.  Also the R^2 value of 0.68 could be better.
+
+=> Let us try the model with only three explanatory variables.
+```{r}
+linear_fit = lm(home_median_value ~ lower_status_ratio + avg_rooms + pupil_teacher_ratio,data=Boston)
+summary(linear_fit)
+```
+Now the residuals and the R^2 are marginally smaller, but all the coefficients have really are really confident.
+
+We need to check that also the initial assumptions required for the linear regression moodel hold.
+```{r}
+plot(linear_fit,which=1)
+```
+The residual plot shows small small pattern,where the residuals are higher at the both ends of the fitted values, but in the mid-range, they are smaller.
+
+```{r}
+plot(linear_fit,which=2)
+```
+The on the QQ plot, we see most of the observations fitting nicely on the line, but at the higher end, the trend does not seem linear any more.
+
+```{r}
+plot(linear_fit,which=5)
+```
+The leverage shows a few data points which are have a high impact on the model.
+
+Conclusions on the model and more detailed discussion about the quality plots is left for the discussion part.
+
+It seems that the data points between 369 and 375 are always the outliers. Let's try one more time after removing data points near them
+```{r}
+Boston_reduced = Boston[-c(360:380),]
+linear_fit = lm(home_median_value ~ lower_status_ratio + avg_rooms + pupil_teacher_ratio,data=Boston_reduced)
+summary(linear_fit)
+plot(linear_fit,which=c(1,2,5))
+```
+This seemed to improve the fit even more, even though some of the original data was lost and now there are some new, yet less relevant outliers.
+
+## Principal Component Analysis
+Using function prcomp to perform the PCA. This time for the scaled data set. Afterwards plotting the results with biplot
+```{r}
+pca_fit = prcomp(Boston_std)
+biplot(pca_fit, choices = 1:2, cex=c(0.7,0.8),col=c("darkseagreen","darkorchid"))
 ```
 
-## R Markdown
+As predicted, now we can see some grouping of the variables. by_river is at least 45 degrees away from all the other variables, meaning that it doesn't really have much effect on the rest of the variables. Also, we can see the same as with the linear model: home_median_value is highly correlated with avg_rooms and highly negatively correlated with for example pupil_teacher_ratio.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Here the principle component PC1 seems to group to gether  "city vs outer suburbs" point of view, while PC2 looks like a rich-poor confrontation (while being perfectly parallely with by_river!).
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+Let's also examine the two further principal components
+```{r}
+biplot(pca_fit, choices = c(3,4), cex=c(0.7,0.8),col=c("darkseagreen","darkorchid"))
 ```
+Now the results are not as clear and the variables directions are almost evenly scattered in all directions. A cautious guess would be that PC3 could be the household size while it is difficult to find a common factor for the PC4 axis.
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+Checking the relations of the different principal components
+```{r}
+summary(pca_fit)
 ```
+From the summary, we see that the first component includes almost 50 % of the variance, while the second and third one are around 10 %. Thus, observing even the fourth one did not make much sense.
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Let's make one more illustration: PC2 with respect to PC3:
+
+```{r}
+biplot(pca_fit, choices = c(2,3), cex=c(0.7,0.8),col=c("darkseagreen","darkorchid"))
+
+```
+This graphs supports the previous observation that PC2 is the rich-poor axis and PC3 being the size of a household, or more precisely the population density.
+
+# Conclusions and discussion
+## Linear Regression
+The aim to distuingish the factors that most affect the dwelling prices in Boston was partially achieved.
+
+The linear regression analysis unsurprisingly shows that bigger houses are more expensive. The more interesting findings are that there really are lower class neighbourhoods in Boston and the house prices are negatively corrected with the percentage of lower class people. Also, probably mainly for the same reasons, the schools with less resourses (i.e. less teachers per pupil) are located within these lower class areas with lower housing costs. 
+
+Though it seems that the linear model was not perfectly fitted. Some of the initial assumptions might not hold 100 %. The Residuals vs Fitted plot shows some clear dependence in between the residual magnitude and fitted values. Though after removing the worst outliers, the Q-Q plot shows a rather nice linear behaviour for the standardized residuals. Also the leverage plot shows that still after removing the outliers, there still are a few variables with 5-10 times importance compared to most.
+
+These flaws show that the Linear Regression fit could be made better, for example by studying the weights of each measurement. However, the fit parameters are relatively good, telling that at least the correct hint of the correlated variables was found.
+
+## Prcincipal Component Analysis
+
+THe PCA results shown on the biplot graphs also do not show anything that really strikes out. From the PC1 axis we can note that houses closer to centre and are prone to be more expensive, even though the variables are almost exactly orthogonal to each other, i.e. not correlated. A curious note is that being by the river seems to balance out the house prices, since the river is a valuable nature resource, but also raises the value of land also further away from the city center(s).
+
+In this PC1-PC2 graph, the variables examined with linear regression are at about 45 degrees angle on both PC1 and PC2. Combining hunches from guessing the axes PC1, PC2 and PC3 leads to a reasonable conclusion that the three most significant dividing lines are "inner city vs suburbs", "upper class vs lower class" and "densely populated vs scarcely populated". Each of these sounds like a reasonable factor when selecting a place to live suitable for everyone's requirements and desires.
+
+## General conclusions
+Thus, further analysis would yet need to be done to be able to realiably predict house prices based on any single one of these measurables. Though, the data could be used to classify Boston's suburbs by their characteristics.
