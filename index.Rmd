@@ -6,6 +6,7 @@ output:
   html_document:
     toc: true
     toc_depth: 2
+    code_folding: hide
 ---
 
 # Abstract
@@ -72,7 +73,7 @@ Boston %>%
 We can conclude the same observation: Some variables, such as avg_rooms or lower_status_ratio are widely distributed roughly following a Gaussian (or Poisson) distribution. While others, such as by_river, crime_rate and black_ratio are mostly non-existent, but those visible are heavily centered in very few neighbourhoods. The rest, for example propertyy_tax_rate or indistriaization are a combination of these two, i.e. in most areas there is some of them present, but there can be found a single area where they are significantly higher.
 
 Checking how each variable is related to each other with a correlation plot.
-```{r}
+```{r results='hide'}
 library(corrplot)
 corrplot.mixed(cor(Boston),number.cex = .6,upper="square",tl.pos = "lt",tl.cex=0.7)
 ```
